@@ -61,7 +61,7 @@ class FastAGIServer(threading.Thread):
         callerid_number = '902'
 
         # Search LDAP for a member with this phone number
-        search = ldap.search(phone_number=callerid_number)
+        search = ldap.search(mobile=callerid_number)
 
         # Convert the response to a list of member objects
         search_results = ldap.memberObjects(search)
