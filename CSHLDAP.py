@@ -8,9 +8,10 @@ import re
 from datetime import datetime, date
 from copy import deepcopy
 
+
 class CSHLDAP:
     def __init__(self, user, password, host='ldaps://ldap.csh.rit.edu:636', \
-            base='ou=Users,dc=csh,dc=rit,dc=edu', bind='ou=Apps,dc=csh,dc=rit,dc=edu', app = False):
+                 base='ou=Users,dc=csh,dc=rit,dc=edu', bind='ou=Apps,dc=csh,dc=rit,dc=edu', app=False, simple=False):
         self.host = host
         self.base = base
         self.users = 'ou=Users,dc=csh,dc=rit,dc=edu'
@@ -22,15 +23,17 @@ class CSHLDAP:
 
         if app:
             self.ldap.simple_bind('cn=' + user + ',' + bind, password)
+        elif simple:
+            self.ldap.simple_bind('uid=' + user + ',' + base, password)
         else:
             try:
                 auth = sasl.gssapi("")
 
                 self.ldap.sasl_interactive_bind_s("", auth)
-            	self.ldap.set_option(pyldap.OPT_DEBUG_LEVEL,0)
+                self.ldap.set_option(pyldap.OPT_DEBUG_LEVEL, 0)
             except pyldap.LDAPError, e:
-            	print 'Are you sure you\'ve run kinit?'
-            	print e
+                print('Are you sure you\'ve run kinit?')
+                print(e)
 
     def members(self, uid="*", objects=False):
         """ members() issues an ldap query for all users, and returns a dict
@@ -63,7 +66,7 @@ class CSHLDAP:
         """
         # self.committee used as base because that's where eboard
         # info is kept
-        committees = self.search(base = self.committees, cn='*')
+        committees = self.search(base=self.committees, cn='*')
         directors = []
         for committee in committees:
             for head in committee[1]['head']:
@@ -75,7 +78,7 @@ class CSHLDAP:
         return directors
 
     def group(self, group_cn, objects=False):
-        members = self.search(base=self.groups,cn=group_cn)
+        members = self.search(base=self.groups, cn=group_cn)
         if len(members) == 0:
             return members
         else:
@@ -109,7 +112,7 @@ class CSHLDAP:
     def trimResult(self, result):
         return [x[1] for x in result]
 
-    def search( self, base=False, trim=False, objects=False, **kwargs ):
+    def search(self, base=False, trim=False, objects=False, **kwargs):
         """ Returns matching entries for search in ldap
             structured as [(dn, {attributes})]
             UNLESS searching by dn, in which case the first match
@@ -119,9 +122,9 @@ class CSHLDAP:
         if not base:
             base = self.users
 
-        filterstr =''
+        filterstr = ''
         for key, value in kwargs.iteritems():
-            filterstr += '({0}={1})'.format(key,value)
+            filterstr += '({0}={1})'.format(key, value)
             if key == 'dn':
                 filterstr = '(objectClass=*)'
                 base = value
@@ -129,25 +132,25 @@ class CSHLDAP:
                 break
 
         if len(kwargs) > 1:
-            filterstr = '(&'+filterstr+')'
+            filterstr = '(&' + filterstr + ')'
 
-        result = self.ldap.search_s(base, pyldap.SCOPE_SUBTREE, filterstr, ['*','+'])
+        result = self.ldap.search_s(base, pyldap.SCOPE_SUBTREE, filterstr, ['*', '+'])
         if base == self.users:
             for member in result:
                 groups = self.getGroups(member[0])
                 member[1]['groups'] = groups
                 if 'eboard' in member[1]['groups']:
                     member[1]['committee'] = self.search(base=self.committees, \
-                           head=member[0])[0][1]['cn'][0]
+                                                         head=member[0])[0][1]['cn'][0]
         if objects:
             return self.memberObjects(result)
         finalResult = self.trimResult(result) if trim else result
         return finalResult
 
-    def modify( self, uid, base=False, **kwargs ):
+    def modify(self, uid, base=False, **kwargs):
         if not base:
             base = self.users
-        dn = 'uid='+uid+',ou=Users,dc=csh,dc=rit,dc=edu'
+        dn = 'uid=' + uid + ',ou=Users,dc=csh,dc=rit,dc=edu'
         old_attrs = self.member(uid)
         new_attrs = deepcopy(old_attrs)
 
@@ -158,12 +161,13 @@ class CSHLDAP:
 
         self.ldap.modify_s(dn, modlist)
 
-    def memberObjects( self, searchResults ):
+    def memberObjects(self, searchResults):
         results = []
         for result in searchResults:
             newMember = Member(result, ldap=self)
             results.append(newMember)
         return results
+
 
 class Member(object):
     def __init__(self, member, ldap=None):
@@ -184,7 +188,7 @@ class Member(object):
             a member and returns whatever data type it represents.
         """
         if (attribute == "specialFields" or
-            attribute in self.specialFields):
+                    attribute in self.specialFields):
             return object.__getattribute__(self, attribute)
         try:
             # Grab the object at that key. It will be a list,
@@ -214,14 +218,14 @@ class Member(object):
             and modify that parameter.
         """
         if (attribute == "specialFields" or
-            attribute in self.specialFields):
+                    attribute in self.specialFields):
             return object.__setattr__(self, attribute, value)
         if attribute in ("memberDict", "ldap"):
             object.__setattr__(self, attribute, value)
             return
         if not self.ldap:
             return
-        kwargs = {attribute : value}
+        kwargs = {attribute: value}
         self.ldap.modify(uid=self.uid, **kwargs)
         self.memberDict[attribute] = value
 
@@ -332,6 +336,7 @@ class Member(object):
             thing = self.__getattr__(key)
             string += str(key) + ": " + str(thing) + "\n"
         return string
+
 
 def dateFromLDAPTimestamp(timestamp):
     """ Takes an LDAP date (In the form YYYYmmdd
