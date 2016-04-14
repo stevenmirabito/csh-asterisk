@@ -2,16 +2,16 @@
 
 """
 FastAGI Interface for CSH PBX
-Must be run on a house machine for access to LDAP
-
-Author: Steven Mirabito <smirabito@csh.rit.edu>
+@author: Steven Mirabito <smirabito@csh.rit.edu>
 """
 
 import re
 import threading
-import time
-import CSHLDAP
 import pystrix
+import yaml
+import time
+from argparse import ArgumentParser
+from slack import SlackBot
 
 
 class FastAGIServer(threading.Thread):
@@ -20,14 +20,20 @@ class FastAGIServer(threading.Thread):
     """
     _fagi_server = None  # The FastAGI server controlled by this thread
 
-    def __init__(self):
+    def __init__(self, config):
         threading.Thread.__init__(self)
         self.daemon = True
 
-        self._fagi_server = pystrix.agi.FastAGIServer(interface='0.0.0.0', port=35498)
+        # Initialize Slack client
+        self.slack_client = SlackBot(config["SLACK_TOKEN"], config["SLACK_CHANNEL"]).start()
 
+        # Initialize FastAGI server
+        self._fagi_server = pystrix.agi.FastAGIServer(interface='127.0.0.1', port=35498)
+
+        # Register Handlers
         self._fagi_server.register_script_handler(re.compile('demo'), self._demo_handler)
-        self._fagi_server.register_script_handler(re.compile('welcome'), self._welcome_handler)
+        self._fagi_server.register_script_handler(re.compile('slack'), self._notify_slack)
+        # self._fagi_server.register_script_handler(re.compile('welcome'), self._welcome_handler)
         self._fagi_server.register_script_handler(None, self._noop_handler)
 
     @staticmethod
@@ -52,6 +58,12 @@ class FastAGIServer(threading.Thread):
 
         agi.execute(pystrix.agi.core.Hangup())  # Hang up the call
 
+    def _notify_slack(self, agi, args, kwargs, match, path):
+        agi.execute(pystrix.agi.core.Answer())
+        self.slack_client.output("@channel: An elevator has been requested. Please send one down ASAP. Thanks!")
+        agi.execute(pystrix.agi.core.Hangup())
+
+    """
     @staticmethod
     def _welcome_handler(agi, args, kwargs, match, path):
         # Create a connection to the CSH LDAP server
@@ -86,7 +98,10 @@ class FastAGIServer(threading.Thread):
                 member_status += 'off floor'
 
             # Construct and return the welcome message
-            agi.execute(pystrix.agi.core.SetVariable('WELCOME', 'Hello ' + member.fullName() + '! According to my records, you are currently an ' + member_status + ' member, with ' + member_attr['drink_balance'] + ' drink credits.'))
+            agi.execute(pystrix.agi.core.SetVariable('WELCOME',
+                                                     'Hello ' + member.fullName() + '! According to my records, you are currently an ' + member_status + ' member, with ' +
+                                                     member_attr['drink_balance'] + ' drink credits.'))
+    """
 
     @staticmethod
     def _noop_handler(self, agi, args, kwargs, match, path):
@@ -103,12 +118,27 @@ class FastAGIServer(threading.Thread):
         self._fagi_server.serve_forever()
 
 
+def parse_args():
+    parser = ArgumentParser()
+    parser.add_argument(
+            '-c',
+            '--config',
+            help='Full path to config file.',
+            metavar='path'
+    )
+    return parser.parse_args()
+
+
 if __name__ == '__main__':
-    fastagi_core = FastAGIServer()
+    # Load config
+    args = parse_args()
+    srv_config = yaml.load(file(args.config or 'csh-asterisk.conf', 'r'))
+
+    # Initialize and start FastAGI server
+    fastagi_core = FastAGIServer(srv_config)
     fastagi_core.start()
 
     while fastagi_core.is_alive():
-        # In a larger application, you'd probably do something useful in another non-daemon
-        # thread or maybe run a parallel AMI server
-        time.sleep(1)
+        time.sleep(.1)
+
     fastagi_core.kill()
