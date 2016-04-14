@@ -24,8 +24,9 @@ class FastAGIServer(threading.Thread):
         threading.Thread.__init__(self)
         self.daemon = True
 
-        # Initialize Slack client
-        self.slack_client = SlackBot(config["SLACK_TOKEN"], config["SLACK_CHANNEL"]).start()
+        # Initialize Slack Bot
+        self.slack_client = SlackBot(config["SLACK_TOKEN"], config["SLACK_CHANNEL"])
+        self.slack_client.connect()
 
         # Initialize FastAGI server
         self._fagi_server = pystrix.agi.FastAGIServer(interface='127.0.0.1', port=35498)
